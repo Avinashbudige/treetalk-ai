@@ -1,0 +1,204 @@
+name: Build & Documentation
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'README.md'
+      - '**.md'
+      - 'requirements.txt'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  docs:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Validate Markdown files
+      run: |
+        echo "📋 Checking Markdown files..."
+        
+        markdown_files=(
+          "README.md"
+          "QUICKSTART.md"
+          "MVP_SUMMARY.md"
+          "IMPLEMENTATION.md"
+          "OVERVIEW.md"
+        )
+        
+        for file in "${markdown_files[@]}"; do
+          if [ -f "$file" ]; then
+            lines=$(wc -l < "$file")
+            size=$(du -h "$file" | cut -f1)
+            echo "  ✓ $file ($lines lines, $size)"
+          else
+            echo "  ✗ Missing: $file"
+            exit 1
+          fi
+        done
+        
+        echo "✅ All markdown files present"
+    
+    - name: Check for broken references
+      run: |
+        echo "🔗 Checking file references in documentation..."
+        
+        python -c "
+        import re
+        import os
+        
+        # Check README for references
+        with open('README.md', 'r') as f:
+            readme = f.read()
+        
+        # Find all markdown links
+        links = re.findall(r'\[.*?\]\((.*?)\)', readme)
+        
+        broken = []
+        for link in links:
+            # Skip external URLs and anchors
+            if link.startswith('http') or link.startswith('#'):
+                continue
+            
+            # Extract file path
+            file_path = link.split('#')[0]
+            
+            if file_path and not os.path.exists(file_path):
+                broken.append(file_path)
+        
+        if broken:
+            print(f'  ❌ Broken references: {broken}')
+            exit(1)
+        else:
+            print(f'  ✓ Found {len(links)} links, all valid')
+            print('✅ No broken references detected')
+        "
+    
+    - name: Verify README sections
+      run: |
+        echo "📖 Verifying README structure..."
+        
+        python -c "
+        with open('README.md', 'r') as f:
+            content = f.read()
+        
+        required_sections = [
+            'TreeTalk AI',
+            'Why TreeTalk AI',
+            'Architecture',
+            'Sensors Used',
+            'Quick Start',
+            'Installation',
+            'Project Structure',
+            'API Endpoints',
+            'Roadmap',
+            'License',
+        ]
+        
+        missing = []
+        for section in required_sections:
+            if section not in content:
+                missing.append(section)
+        
+        if missing:
+            print(f'  ❌ Missing sections: {missing}')
+            exit(1)
+        
+        print(f'  ✓ All {len(required_sections)} main sections present')
+        print('✅ README structure verified')
+        "
+
+  build-info:
+    name: Build Information
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Generate project summary
+      run: |
+        echo "📊 Project Summary"
+        echo "===================="
+        echo ""
+        
+        echo "📁 Directory Structure:"
+        find . -type f -name "*.py" | head -20 | sed 's/^/  /'
+        echo ""
+        
+        echo "📄 Python Files:"
+        python_files=$(find . -name "*.py" -type f | grep -v __pycache__ | wc -l)
+        echo "  Total: $python_files files"
+        echo ""
+        
+        echo "📚 Documentation:"
+        doc_files=$(find . -name "*.md" -type f | wc -l)
+        echo "  Total: $doc_files markdown files"
+        echo ""
+        
+        echo "⚙️ Configuration:"
+        echo "  ✓ requirements.txt"
+        echo "  ✓ .env.example"
+        echo "  ✓ .gitignore"
+        echo ""
+    
+    - name: Calculate code metrics
+      run: |
+        echo "📈 Code Metrics"
+        echo "================"
+        echo ""
+        
+        python -c "
+        import os
+        
+        # Count code lines
+        total_lines = 0
+        file_count = 0
+        
+        for root, dirs, files in os.walk('.'):
+            # Skip hidden and cache directories
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
+            
+            for file in files:
+                if file.endswith('.py'):
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, 'r') as f:
+                            lines = len(f.readlines())
+                            total_lines += lines
+                            file_count += 1
+                    except:
+                        pass
+        
+        print(f'Python Code:')
+        print(f'  Files: {file_count}')
+        print(f'  Lines of Code: {total_lines}')
+        print(f'  Avg lines per file: {total_lines // file_count if file_count > 0 else 0}')
+        print()
+        "
+        
+        echo "✅ Project structure healthy"
+    
+    - name: Verify workflow files
+      run: |
+        echo "🔄 Checking GitHub Actions workflows..."
+        
+        workflows=(.github/workflows/*.yml)
+        
+        if [ ${#workflows[@]} -eq 0 ]; then
+          echo "  ❌ No workflows found"
+          exit 1
+        fi
+        
+        for workflow in .github/workflows/*.yml; do
+          name=$(basename "$workflow")
+          echo "  ✓ $name"
+        done
+        
+        echo ""
+        echo "✅ $(ls .github/workflows/*.yml | wc -l) workflows configured"

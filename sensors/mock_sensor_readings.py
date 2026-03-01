@@ -137,6 +137,29 @@ def generate_reading(scenario: str = "healthy", tree_id: str = "TREE-001") -> di
 
     return reading
 
+
+def generate_sensor_data(scenario: str = "healthy", tree_id: str = "TREE-001") -> dict:
+    """
+    Generate a flat dictionary of sensor values for API consumption.
+    
+    Returns sensor readings in the format expected by the FastAPI endpoints.
+    
+    Args:
+        scenario: One of [healthy, drought_stress, overwatering, 
+                         pest_infestation, nutrient_deficiency]
+        tree_id: Tree identifier
+        
+    Returns:
+        Dictionary with sensor keys and their values
+    """
+    reading = generate_reading(scenario, tree_id)
+    sensor_dict = reading["sensors"].copy()
+    sensor_dict["tree_id"] = tree_id
+    sensor_dict["scenario"] = scenario
+    sensor_dict["timestamp"] = reading["timestamp"]
+    return sensor_dict
+
+
 def run_demo():
     print("=" * 65)
     print("  TreeTalk AI - Mock Sensor Demo")

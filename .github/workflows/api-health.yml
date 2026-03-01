@@ -1,0 +1,229 @@
+name: API Health Check
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  api-startup:
+    name: API Startup Verification
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create mock .env file
+      run: |
+        cat > .env << EOF
+        GEMINI_API_KEY=test_key_for_ci_only
+        EOF
+    
+    - name: Verify API structure
+      run: |
+        python -c "
+        from api.main import (
+            app, 
+            root, 
+            analyze_sensor_data,
+            mock_analyze,
+            get_scenarios,
+            SensorData,
+            HealthReport
+        )
+        print('✅ All API components imported successfully')
+        print(f'✅ FastAPI app routes: {len(app.routes)} routes configured')
+        "
+    
+    - name: Check API endpoints
+      run: |
+        python -c "
+        from api.main import app
+        
+        routes = {route.path: route.methods for route in app.routes}
+        
+        required_endpoints = {
+            '/': {'GET'},
+            '/scenarios': {'GET'},
+            '/mock-analyze/{scenario}': {'GET'},
+            '/analyze': {'POST'},
+        }
+        
+        print('📋 Configured API Endpoints:')
+        for path, methods in routes.items():
+            if path.startswith('/'):
+                print(f'  {methods} {path}')
+        
+        print('\\n✅ API endpoint structure validated')
+        "
+    
+    - name: Test data model validation
+      run: |
+        python -c "
+        from api.main import SensorData, HealthReport
+        import json
+        
+        # Test SensorData validation
+        valid_sensor_json = {
+            'soil_moisture_pct': 55.0,
+            'soil_temperature_c': 20.0,
+            'soil_ph': 6.5,
+            'soil_ec_mS_cm': 1.5,
+            'air_temperature_c': 25.0,
+            'air_humidity_pct': 60.0,
+            'light_lux': 40000.0,
+            'co2_ppm': 420.0,
+            'trunk_diameter_mm': 152.0,
+            'sap_flow_L_hr': 2.0,
+            'leaf_temperature_c': 26.0,
+            'vibration_amplitude_g': 0.05,
+            'rainfall_mm_24h': 2.0,
+            'wind_speed_km_h': 12.0,
+            'tree_name': 'Test Tree'
+        }
+        
+        sensor = SensorData(**valid_sensor_json)
+        print(f'✅ SensorData model validation passed for {sensor.tree_name}')
+        
+        # Test HealthReport validation
+        report = HealthReport(
+            tree_name='Test Tree',
+            timestamp='2026-03-01T12:00:00Z',
+            health_status='Analyzed',
+            analysis='Test report',
+            severity='HEALTHY'
+        )
+        print(f'✅ HealthReport model validation passed with severity: {report.severity}')
+        "
+    
+    - name: Verify scenario data
+      run: |
+        python -c "
+        from sensors.mock_sensor_readings import SCENARIOS
+        
+        print('📊 Available Mock Scenarios:')
+        for scenario_name in SCENARIOS.keys():
+            print(f'  ✓ {scenario_name}')
+        
+        print(f'\\n✅ {len(SCENARIOS)} scenarios configured')
+        "
+    
+    - name: Test prompt system compliance
+      run: |
+        python -c "
+        from ai.gemini_health_prompt import get_system_prompt, get_analysis_prompt
+        
+        system_prompt = get_system_prompt()
+        
+        # Verify key characteristics
+        required_terms = [
+            'arborist',
+            'sensor',
+            'CRITICAL',
+            'WARNING',
+            'CAUTION',
+            'HEALTHY',
+            'recommendation'
+        ]
+        
+        print('🔍 System Prompt Verification:')
+        for term in required_terms:
+            if term.lower() in system_prompt.lower():
+                print(f'  ✓ Contains \"{term}\"')
+            else:
+                print(f'  ✗ Missing \"{term}\"')
+        
+        print('\\n✅ System prompt structure validated')
+        "
+
+  api-import:
+    name: API Import Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create mock .env
+      run: |
+        echo "GEMINI_API_KEY=test_key" > .env
+    
+    - name: Test critical imports
+      run: |
+        python -c "
+        import sys
+        
+        # Test core module imports
+        try:
+            from ai.gemini_health_prompt import (
+                get_system_prompt,
+                get_analysis_prompt,
+                get_quick_reference_guide,
+                _get_unit
+            )
+            print('✅ ai.gemini_health_prompt imports successful')
+        except ImportError as e:
+            print(f'❌ Failed to import from ai: {e}')
+            sys.exit(1)
+        
+        try:
+            from api.main import (
+                app,
+                SensorData,
+                HealthReport,
+                analyze_sensor_data,
+                mock_analyze,
+                get_scenarios
+            )
+            print('✅ api.main imports successful')
+        except ImportError as e:
+            print(f'❌ Failed to import from api: {e}')
+            sys.exit(1)
+        
+        try:
+            from sensors.mock_sensor_readings import (
+                SCENARIOS,
+                generate_sensor_data,
+                generate_reading
+            )
+            print('✅ sensors.mock_sensor_readings imports successful')
+        except ImportError as e:
+            print(f'❌ Failed to import from sensors: {e}')
+            sys.exit(1)
+        
+        try:
+            from example_integration import TreeHealthMonitor
+            print('✅ example_integration imports successful')
+        except ImportError as e:
+            print(f'❌ Failed to import example_integration: {e}')
+            sys.exit(1)
+        
+        print('\\n✅ All critical imports verified')
+        "

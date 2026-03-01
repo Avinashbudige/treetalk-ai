@@ -1,0 +1,310 @@
+name: MVP Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  smoke-tests:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create .env file
+      run: |
+        echo "GEMINI_API_KEY=test_key_for_ci" > .env
+    
+    - name: Run smoke tests
+      run: |
+        python smoke_test.py
+
+  mvp-validation:
+    name: MVP Validations
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create .env for testing
+      run: |
+        cat > .env << EOF
+        GEMINI_API_KEY=test_key_for_ci
+        SERVER_HOST=0.0.0.0
+        SERVER_PORT=8000
+        EOF
+    
+    - name: Test 1 - Prompt System
+      run: |
+        echo "▶️  Running: Prompt System Test"
+        python -c "
+        from ai.gemini_health_prompt import (
+            get_system_prompt,
+            get_analysis_prompt,
+            get_quick_reference_guide
+        )
+        
+        # Test 1a: System prompt
+        system = get_system_prompt()
+        assert len(system) > 200, 'System prompt too short'
+        assert 'arborist' in system.lower(), 'Missing arborist role'
+        print('  ✅ Test 1a: System prompt generation')
+        
+        # Test 1b: Analysis prompt
+        test_sensors = {
+            'soil_moisture_pct': 55.0,
+            'soil_temperature_c': 20.0,
+            'soil_ph': 6.5,
+            'soil_ec_mS_cm': 1.5,
+            'air_temperature_c': 25.0,
+            'air_humidity_pct': 60.0,
+            'light_lux': 40000.0,
+            'co2_ppm': 420.0,
+            'trunk_diameter_mm': 152.0,
+            'sap_flow_L_hr': 2.0,
+            'leaf_temperature_c': 26.0,
+            'vibration_amplitude_g': 0.05,
+            'rainfall_mm_24h': 2.0,
+            'wind_speed_km_h': 12.0,
+        }
+        
+        analysis = get_analysis_prompt(test_sensors, 'Test Oak')
+        assert 'Test Oak' in analysis, 'Tree name not in analysis'
+        assert 'soil_moisture' in analysis.lower(), 'Sensor data missing'
+        assert 'Healthy Reference Ranges' in analysis, 'Reference ranges missing'
+        print('  ✅ Test 1b: Analysis prompt generation')
+        
+        # Test 1c: Quick reference
+        guide = get_quick_reference_guide()
+        assert 'DROUGHT' in guide.upper(), 'Quick reference incomplete'
+        print('  ✅ Test 1c: Quick reference guide')
+        
+        print('\\n✅ All Prompt System tests passed')
+        "
+    
+    - name: Test 2 - Sensor Data Generation
+      run: |
+        echo "▶️  Running: Sensor Data Generation Test"
+        python -c "
+        from sensors.mock_sensor_readings import generate_sensor_data, SCENARIOS
+        
+        required_fields = [
+            'soil_moisture_pct', 'soil_temperature_c', 'soil_ph', 'soil_ec_mS_cm',
+            'air_temperature_c', 'air_humidity_pct', 'light_lux', 'co2_ppm',
+            'trunk_diameter_mm', 'sap_flow_L_hr', 'leaf_temperature_c',
+            'vibration_amplitude_g', 'rainfall_mm_24h', 'wind_speed_km_h'
+        ]
+        
+        # Test 2a: All scenarios
+        for scenario in SCENARIOS.keys():
+            data = generate_sensor_data(scenario)
+            assert data['scenario'] == scenario
+            for field in required_fields:
+                assert field in data, f'Missing {field} in {scenario}'
+            print(f'  ✅ Test 2a: Scenario \"{scenario}\" data generation')
+        
+        # Test 2b: Data ranges
+        print('\\n  Verifying data value ranges:')
+        for scenario in ['healthy', 'drought_stress', 'overwatering']:
+            data = generate_sensor_data(scenario)
+            assert 0 <= data['soil_moisture_pct'] <= 100, f'Invalid moisture for {scenario}'
+            assert -50 <= data['soil_temperature_c'] <= 60, f'Invalid temp for {scenario}'
+            print(f'    ✓ {scenario}: ranges valid')
+        
+        print('\\n✅ All Sensor Data tests passed')
+        "
+    
+    - name: Test 3 - API Models
+      run: |
+        echo "▶️  Running: API Models Test"
+        python -c "
+        from api.main import SensorData, HealthReport
+        from pydantic import ValidationError
+        
+        # Test 3a: Valid sensor data
+        valid_data = {
+            'soil_moisture_pct': 55.0,
+            'soil_temperature_c': 20.0,
+            'soil_ph': 6.5,
+            'soil_ec_mS_cm': 1.5,
+            'air_temperature_c': 25.0,
+            'air_humidity_pct': 60.0,
+            'light_lux': 40000.0,
+            'co2_ppm': 420.0,
+            'trunk_diameter_mm': 152.0,
+            'sap_flow_L_hr': 2.0,
+            'leaf_temperature_c': 26.0,
+            'vibration_amplitude_g': 0.05,
+            'rainfall_mm_24h': 2.0,
+            'wind_speed_km_h': 12.0,
+            'tree_name': 'Oak Tree'
+        }
+        
+        sensor = SensorData(**valid_data)
+        assert sensor.tree_name == 'Oak Tree'
+        print('  ✅ Test 3a: Valid SensorData model')
+        
+        # Test 3b: Health report
+        report = HealthReport(
+            tree_name='Test Tree',
+            timestamp='2026-03-01T12:00:00Z',
+            health_status='Analyzed',
+            analysis='Test analysis report',
+            severity='HEALTHY'
+        )
+        assert report.severity in ['HEALTHY', 'CAUTION', 'WARNING', 'CRITICAL']
+        print('  ✅ Test 3b: HealthReport model')
+        
+        # Test 3c: Invalid data should fail
+        try:
+            invalid = SensorData(**{k: v for k, v in valid_data.items() if k != 'soil_moisture_pct'})
+            print('  ❌ Test 3c: Validation should have failed for missing field')
+            exit(1)
+        except ValidationError:
+            print('  ✅ Test 3c: Proper validation of missing fields')
+        
+        print('\\n✅ All API Models tests passed')
+        "
+    
+    - name: Test 4 - Data Consistency
+      run: |
+        echo "▶️  Running: Data Consistency Test"
+        python -c "
+        from sensors.mock_sensor_readings import SCENARIOS, OPTIMAL_RANGES
+        
+        # Test 4a: Optimal ranges defined
+        required_ranges = [
+            'soil_moisture_pct', 'soil_temperature_c', 'soil_ph', 'soil_ec_mS_cm',
+            'air_temperature_c', 'air_humidity_pct', 'light_lux', 'co2_ppm'
+        ]
+        
+        for key in required_ranges:
+            assert key in OPTIMAL_RANGES, f'Missing optimal range for {key}'
+        print('  ✅ Test 4a: All optimal ranges defined')
+        
+        # Test 4b: Scenario ranges are reasonable
+        for scenario, ranges in SCENARIOS.items():
+            for key, (min_val, max_val) in ranges.items():
+                assert min_val < max_val, f'Invalid range for {key} in {scenario}'
+        print('  ✅ Test 4b: All scenario ranges valid (min < max)')
+        
+        print('\\n✅ All Data Consistency tests passed')
+        "
+    
+    - name: Test 5 - Integration Example
+      run: |
+        echo "▶️  Running: Integration Example Test"
+        python -c "
+        from example_integration import TreeHealthMonitor
+        
+        # Test 5a: Monitor initialization
+        monitor = TreeHealthMonitor(tree_name='Test Tree')
+        assert monitor.tree_name == 'Test Tree'
+        print('  ✅ Test 5a: TreeHealthMonitor initialization')
+        
+        # Test 5b: Simulator data generation
+        sensor_data = monitor.read_sensors_from_simulator()
+        assert isinstance(sensor_data, dict)
+        assert 'soil_moisture_pct' in sensor_data
+        print('  ✅ Test 5b: Simulator data generation')
+        
+        # Test 5c: Report formatting methods exist
+        assert hasattr(monitor, 'print_report')
+        assert hasattr(monitor, 'log_report')
+        print('  ✅ Test 5c: Report handling methods available')
+        
+        print('\\n✅ All Integration Example tests passed')
+        "
+    
+    - name: Test 6 - File Integrity
+      run: |
+        echo "▶️  Running: File Integrity Test"
+        python -c "
+        import os
+        import json
+        
+        # Test 6a: Required files exist
+        required_files = [
+            'ai/__init__.py',
+            'ai/gemini_health_prompt.py',
+            'api/__init__.py',
+            'api/main.py',
+            'sensors/__init__.py',
+            'sensors/mock_sensor_readings.py',
+            'example_integration.py',
+            'test_mvp.py',
+            'requirements.txt',
+            '.env.example',
+            'QUICKSTART.md',
+            'MVP_SUMMARY.md',
+            'IMPLEMENTATION.md',
+            'OVERVIEW.md',
+        ]
+        
+        missing = []
+        for file in required_files:
+            if not os.path.exists(file):
+                missing.append(file)
+        
+        if missing:
+            print(f'  ❌ Missing files: {missing}')
+            exit(1)
+        
+        print(f'  ✅ Test 6a: All {len(required_files)} required files present')
+        
+        # Test 6b: Documentation files readable
+        doc_files = ['README.md', 'QUICKSTART.md', 'MVP_SUMMARY.md']
+        for doc in doc_files:
+            with open(doc, 'r') as f:
+                content = f.read()
+                assert len(content) > 100, f'{doc} too short'
+        print('  ✅ Test 6b: Documentation files valid')
+        
+        print('\\n✅ All File Integrity tests passed')
+        "
+    
+    - name: Summary
+      if: success()
+      run: |
+        echo ""
+        echo "╔════════════════════════════════════════╗"
+        echo "║  ✅ MVP TEST SUITE: ALL TESTS PASSED   ║"
+        echo "╚════════════════════════════════════════╝"
+        echo ""
+        echo "Tests completed:"
+        echo "  ✓ Test 1: Prompt System"
+        echo "  ✓ Test 2: Sensor Data Generation"
+        echo "  ✓ Test 3: API Models"
+        echo "  ✓ Test 4: Data Consistency"
+        echo "  ✓ Test 5: Integration Example"
+        echo "  ✓ Test 6: File Integrity"
+        echo ""
+        echo "TreeTalk AI MVP is ready for deployment! 🌳"
+        echo ""

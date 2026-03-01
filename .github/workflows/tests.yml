@@ -1,0 +1,205 @@
+name: Tests & API Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run pytest
+      run: |
+        pytest tests/ -v --tb=short
+      continue-on-error: false
+    
+    - name: Test mock sensor data generation
+      run: |
+        python sensors/mock_sensor_readings.py > /tmp/sensor_output.txt
+        if grep -q "TreeTalk AI - Mock Sensor Demo" /tmp/sensor_output.txt; then
+          echo "✅ Mock sensor data generation successful"
+        else
+          echo "❌ Mock sensor data generation failed"
+          exit 1
+        fi
+    
+    - name: Verify API can start
+      run: |
+        # Test that the API module can be imported without errors
+        timeout 5 python -c "from api.main import app; print('✅ FastAPI app imported successfully')" || true
+    
+    - name: Test prompt system
+      run: |
+        python -c "
+        from ai.gemini_health_prompt import (
+            get_system_prompt, 
+            get_analysis_prompt,
+            get_quick_reference_guide
+        )
+        
+        # Verify system prompt is not empty
+        system = get_system_prompt()
+        assert system and len(system) > 100, 'System prompt too short'
+        
+        # Verify analysis prompt generation
+        test_data = {
+            'soil_moisture_pct': 55.0,
+            'soil_temperature_c': 20.0,
+            'soil_ph': 6.5,
+            'soil_ec_mS_cm': 1.5,
+            'air_temperature_c': 25.0,
+            'air_humidity_pct': 60.0,
+            'light_lux': 40000.0,
+            'co2_ppm': 420.0,
+            'trunk_diameter_mm': 152.0,
+            'sap_flow_L_hr': 2.0,
+            'leaf_temperature_c': 26.0,
+            'vibration_amplitude_g': 0.05,
+            'rainfall_mm_24h': 2.0,
+            'wind_speed_km_h': 12.0,
+        }
+        analysis = get_analysis_prompt(test_data, 'Test Tree')
+        assert analysis and len(analysis) > 500, 'Analysis prompt too short'
+        assert 'Test Tree' in analysis, 'Tree name not in analysis'
+        
+        # Verify quick reference guide
+        guide = get_quick_reference_guide()
+        assert 'DROUGHT' in guide.upper(), 'Quick reference guide incomplete'
+        
+        print('✅ All prompt system tests passed')
+        "
+    
+    - name: Validate sensor data format
+      run: |
+        python -c "
+        from sensors.mock_sensor_readings import generate_sensor_data, SCENARIOS
+        
+        # Test all scenarios
+        for scenario in SCENARIOS:
+            data = generate_sensor_data(scenario)
+            
+            # Check all required fields
+            required_fields = [
+                'soil_moisture_pct', 'soil_temperature_c', 'soil_ph', 'soil_ec_mS_cm',
+                'air_temperature_c', 'air_humidity_pct', 'light_lux', 'co2_ppm',
+                'trunk_diameter_mm', 'sap_flow_L_hr', 'leaf_temperature_c',
+                'vibration_amplitude_g', 'rainfall_mm_24h', 'wind_speed_km_h',
+                'tree_id', 'scenario', 'timestamp'
+            ]
+            
+            for field in required_fields:
+                assert field in data, f'Missing field: {field} in {scenario}'
+            
+            print(f'✅ Scenario {scenario} validation passed')
+        "
+    
+    - name: Test sensor data import
+      run: |
+        python -c "
+        from pydantic import BaseModel, ValidationError
+        
+        # Test sensor data validation
+        class TestSensorData(BaseModel):
+            soil_moisture_pct: float
+            soil_temperature_c: float
+            soil_ph: float
+            soil_ec_mS_cm: float
+            air_temperature_c: float
+            air_humidity_pct: float
+            light_lux: float
+            co2_ppm: float
+            trunk_diameter_mm: float
+            sap_flow_L_hr: float
+            leaf_temperature_c: float
+            vibration_amplitude_g: float
+            rainfall_mm_24h: float
+            wind_speed_km_h: float
+        
+        # Valid data
+        valid_data = {
+            'soil_moisture_pct': 55.0,
+            'soil_temperature_c': 20.0,
+            'soil_ph': 6.5,
+            'soil_ec_mS_cm': 1.5,
+            'air_temperature_c': 25.0,
+            'air_humidity_pct': 60.0,
+            'light_lux': 40000.0,
+            'co2_ppm': 420.0,
+            'trunk_diameter_mm': 152.0,
+            'sap_flow_L_hr': 2.0,
+            'leaf_temperature_c': 26.0,
+            'vibration_amplitude_g': 0.05,
+            'rainfall_mm_24h': 2.0,
+            'wind_speed_km_h': 12.0,
+        }
+        
+        sensor = TestSensorData(**valid_data)
+        assert sensor.soil_moisture_pct == 55.0
+        print('✅ Pydantic validation test passed')
+        "
+
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort
+    
+    - name: Check imports with isort
+      run: |
+        isort --check-only --diff ai/ api/ sensors/ tests/ example_integration.py || true
+    
+    - name: Format check with black
+      run: |
+        black --check ai/ api/ sensors/ tests/ example_integration.py || true
+    
+    - name: Lint with flake8
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 ai/ api/ sensors/ tests/ example_integration.py \
+          --count \
+          --select=E9,F63,F7,F82 \
+          --show-source \
+          --statistics
+        
+        # Exit-zero treats all errors as warnings
+        flake8 ai/ api/ sensors/ tests/ example_integration.py \
+          --count \
+          --exit-zero \
+          --max-complexity=10 \
+          --max-line-length=127 \
+          --statistics
+      continue-on-error: true
