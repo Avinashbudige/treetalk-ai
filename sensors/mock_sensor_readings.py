@@ -1,17 +1,16 @@
+"""
 mock_sensor_readings.py
 -----------------------
 Simulates IoT sensor data from a tree health monitoring system.
 Covers 5 scenarios: healthy, drought_stress, overwatering,
 pest_infestation, nutrient_deficiency.
+"""
 
 import random
 import json
 from datetime import datetime
 
 
-# ---------------------------------------------------------------------------
-# Sensor value ranges per health scenario
-# ---------------------------------------------------------------------------
 SCENARIOS = {
     "healthy": {
         "soil_moisture_pct":        (55, 70),
@@ -107,29 +106,28 @@ OPTIMAL_RANGES = {
     "trunk_diameter_mm":     "stable / slight diurnal swing",
     "sap_flow_L_hr":         "1.0-3.0 L/hr",
     "leaf_temperature_c":    "20-30 C",
-    "vibration_amplitude_g": "< 0.08 g  (higher = pest activity)",
+    "vibration_amplitude_g": "< 0.08 g (higher = pest activity)",
     "rainfall_mm_24h":       "0-15 mm/day",
     "wind_speed_km_h":       "0-40 km/h",
 }
 
 def generate_reading(scenario: str = "healthy", tree_id: str = "TREE-001") -> dict:
-    """Return a single simulated sensor snapshot for the given scenario."""
     if scenario not in SCENARIOS:
         raise ValueError(f"Unknown scenario '{scenario}'. Choose from: {list(SCENARIOS)}")
 
     ranges = SCENARIOS[scenario]
     reading = {
-        "tree_id":    tree_id,
-        "scenario":   scenario,
-        "timestamp":  datetime.utcnow().isoformat() + "Z",
+        "tree_id":   tree_id,
+        "scenario":  scenario,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
         "location": {
             "lat":  12.9716,
             "lon":  77.5946,
             "site": "Cubbon Park - Plot A3",
         },
-        "species":    "Ficus benghalensis",
-        "age_years":  25,
-        "sensors":    {},
+        "species":   "Ficus benghalensis",
+        "age_years": 25,
+        "sensors":   {},
         "optimal_ranges": OPTIMAL_RANGES,
     }
 
@@ -140,7 +138,6 @@ def generate_reading(scenario: str = "healthy", tree_id: str = "TREE-001") -> di
     return reading
 
 def run_demo():
-    """Print one reading for every scenario."""
     print("=" * 65)
     print("  TreeTalk AI - Mock Sensor Demo")
     print(f"  Generated at: {datetime.utcnow().isoformat()}Z")
