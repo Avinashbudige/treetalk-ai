@@ -1,0 +1,20 @@
+# Environment variables for TreeTalk AI
+# Copy this file to .env and fill in your values
+
+# Google Gemini API Key (get free key at https://aistudio.google.com/app/apikey)
+GEMINI_API_KEY=AIzaSyDPid95nIrpw1EPr6GfwsibXMlFMordfSY
+
+# API Server settings
+HOST=0.0.0.0
+PORT=8000
+DEBUG=True
+
+# Optional: Alert webhook (e.g. Slack, Teams)
+ALERT_WEBHOOK_URL=
+
+# Optional: SMTP for email alerts
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+ALERT_EMAIL_TO=
